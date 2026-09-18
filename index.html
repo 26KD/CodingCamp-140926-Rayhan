@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense &amp; Budget Visualizer</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Storage warning banner -->
+  <div id="storage-warning" class="storage-warning" role="alert" aria-live="polite" hidden>
+    <span id="storage-warning-message"></span>
+    <button id="storage-warning-close" aria-label="Tutup peringatan">&times;</button>
+  </div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <h1>Expense &amp; Budget Visualizer</h1>
+    </header>
+
+    <main class="app-main">
+
+      <!-- Total Balance -->
+      <section class="balance-section" aria-label="Total Balance">
+        <p class="balance-label">Total Pengeluaran</p>
+        <p id="total-balance" class="balance-amount">Rp 0,00</p>
+      </section>
+
+      <!-- Input Form -->
+      <section class="form-section" aria-label="Tambah Transaksi">
+        <h2>Tambah Pengeluaran</h2>
+        <form id="transaction-form" novalidate>
+          <div class="form-group">
+            <label for="item-name">Nama Item</label>
+            <input
+              type="text"
+              id="item-name"
+              name="itemName"
+              maxlength="100"
+              placeholder="Contoh: Nasi Goreng"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="amount">Jumlah (Rp)</label>
+            <input
+              type="number"
+              id="amount"
+              name="amount"
+              min="0.01"
+              max="999999999.99"
+              step="0.01"
+              placeholder="Contoh: 25000"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="category">Kategori</label>
+            <select id="category" name="category">
+              <option value="">-- Pilih Kategori --</option>
+              <option value="Food">Food</option>
+              <option value="Transport">Transport</option>
+              <option value="Fun">Fun</option>
+            </select>
+          </div>
+
+          <!-- Validation errors -->
+          <div id="validation-errors" class="validation-errors" role="alert" aria-live="polite" hidden>
+            <ul id="error-list"></ul>
+          </div>
+
+          <button type="submit" id="submit-btn" class="btn-submit">Tambah Transaksi</button>
+        </form>
+      </section>
+
+      <div class="content-grid">
+
+        <!-- Transaction List -->
+        <section class="transaction-section" aria-label="Daftar Transaksi">
+          <h2>Daftar Transaksi</h2>
+
+          <!-- Empty state -->
+          <div id="empty-state" class="empty-state" hidden>
+            <p>Belum ada transaksi yang dicatat.</p>
+          </div>
+
+          <!-- Transaction list -->
+          <ul id="transaction-list" class="transaction-list" aria-label="Daftar pengeluaran"></ul>
+        </section>
+
+        <!-- Chart Section -->
+        <section class="chart-section" aria-label="Distribusi Anggaran">
+          <h2>Distribusi Anggaran</h2>
+
+          <!-- Chart empty state -->
+          <div id="chart-empty-state" class="empty-state" hidden>
+            <p>Belum ada data untuk divisualisasikan.</p>
+          </div>
+
+          <!-- Chart error state (CDN load failure) -->
+          <div id="chart-error" class="chart-error" hidden>
+            <p>Grafik tidak dapat dimuat. Periksa koneksi internet Anda.</p>
+          </div>
+
+          <div id="chart-container" class="chart-container" hidden>
+            <canvas id="budget-chart" aria-label="Pie chart distribusi anggaran per kategori" role="img"></canvas>
+          </div>
+        </section>
+
+      </div><!-- /.content-grid -->
+
+    </main>
+
+    <footer class="app-footer">
+      <p>Expense &amp; Budget Visualizer &mdash; Data tersimpan di browser Anda.</p>
+    </footer>
+  </div><!-- /.app-container -->
+
+  <!-- Chart.js via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Application script -->
+  <script src="js/app.js"></script>
+</body>
+</html>

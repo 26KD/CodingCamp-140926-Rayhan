@@ -1,0 +1,16 @@
+{
+  "name": "expense-budget-visualizer",
+  "version": "1.0.0",
+  "description": "Expense & Budget Visualizer — single-page web app",
+  "type": "module",
+  "scripts": {
+    "test": "vitest --run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "fast-check": "3.23.2",
+    "vitest": "2.1.9",
+    "@vitest/coverage-v8": "2.1.9",
+    "jsdom": "25.0.1"
+  }
+}
