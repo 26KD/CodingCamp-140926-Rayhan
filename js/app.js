@@ -5,8 +5,17 @@
 // Bertanggung jawab atas validasi seluruh input dari Input_Form.
 // =============================================================================
 
-const VALID_CATEGORIES = ['Food', 'Transport', 'Fun'];
+const DEFAULT_CATEGORIES = ['Food', 'Transport', 'Fun'];
 const MAX_AMOUNT = 999999999.99;
+const MAX_CATEGORY_LENGTH = 30;
+const STORAGE_KEY = 'expense_transactions';
+const CUSTOM_CATEGORIES_STORAGE_KEY = 'expense_custom_categories';
+
+/** @type {string[]} */
+let customCategories = [];
+
+/** @type {'latest'|'amount-desc'|'amount-asc'|'category-asc'} */
+let currentSort = 'latest';
 
 /**
  * Memvalidasi data form sebelum diproses.
@@ -17,7 +26,7 @@ const MAX_AMOUNT = 999999999.99;
  * @param {string} category  - nilai string dari dropdown Category
  * @returns {{ valid: boolean, errors: string[] }}
  */
-function validateInput(itemName, amountRaw, category) {
+function validateInput(itemName, amountRaw, category, categories = getCategories()) {
   const errors = [];
 
   // --- Validasi Item Name ---
@@ -42,7 +51,7 @@ function validateInput(itemName, amountRaw, category) {
   }
 
   // --- Validasi Category ---
-  if (!category || !VALID_CATEGORIES.includes(category)) {
+  if (!category || !categories.includes(category)) {
     errors.push('Category tidak valid');
   }
 
@@ -62,12 +71,41 @@ function validateInput(itemName, amountRaw, category) {
  * @property {string}  id        - UUID unik
  * @property {string}  itemName  - nama item, maks 100 karakter
  * @property {number}  amount    - nilai desimal positif, 0.01 – 999999999.99
- * @property {string}  category  - 'Food' | 'Transport' | 'Fun'
+ * @property {string}  category  - kategori bawaan atau kategori kustom
  * @property {number}  createdAt - Unix timestamp ms (Date.now())
  */
 
 /** @type {Transaction[]} */
 let transactions = [];
+
+/**
+ * Mengembalikan seluruh kategori yang tersedia, tanpa duplikasi.
+ * @returns {string[]}
+ */
+function getCategories() {
+  return [...DEFAULT_CATEGORIES, ...customCategories];
+}
+
+/**
+ * Menormalkan dan memvalidasi nama kategori baru.
+ * @param {string} rawName
+ * @returns {{ valid: boolean, value: string, error: string }}
+ */
+function validateCategoryName(rawName) {
+  const value = (rawName || '').trim().replace(/\s+/g, ' ');
+
+  if (!value) {
+    return { valid: false, value, error: 'Nama kategori tidak boleh kosong' };
+  }
+  if (value.length > MAX_CATEGORY_LENGTH) {
+    return { valid: false, value, error: `Nama kategori maksimal ${MAX_CATEGORY_LENGTH} karakter` };
+  }
+  if (getCategories().some((category) => category.toLocaleLowerCase('id-ID') === value.toLocaleLowerCase('id-ID'))) {
+    return { valid: false, value, error: 'Kategori tersebut sudah tersedia' };
+  }
+
+  return { valid: true, value, error: '' };
+}
 
 /**
  * Menghasilkan ID unik menggunakan crypto.randomUUID() dengan fallback.
@@ -121,19 +159,15 @@ function computeTotalBalance() {
  * Menghitung total nominal per category.
  * @returns {{ Food: number, Transport: number, Fun: number }}
  */
-function computeCategoryTotals() {
-  return transactions.reduce(
+function computeCategoryTotals(txList = transactions) {
+  return txList.reduce(
     (totals, t) => {
-      if (t.category in totals) {
-        totals[t.category] += t.amount;
-      }
+      totals[t.category] = (totals[t.category] || 0) + t.amount;
       return totals;
     },
-    { Food: 0, Transport: 0, Fun: 0 }
+    {}
   );
 }
-
-const STORAGE_KEY = 'expense_transactions';
 
 /**
  * Memeriksa apakah localStorage API tersedia dan dapat digunakan.
@@ -152,6 +186,59 @@ function isStorageAvailable() {
 }
 
 /**
+ * Menyimpan kategori kustom. Kegagalan penyimpanan tidak membatalkan kategori
+ * untuk sesi halaman yang sedang terbuka.
+ */
+function saveCustomCategories() {
+  try {
+    localStorage.setItem(CUSTOM_CATEGORIES_STORAGE_KEY, JSON.stringify(customCategories));
+  } catch (e) {
+    showStorageWarning('Kategori kustom tidak dapat disimpan. Perubahan Anda hanya berlaku untuk sesi ini.');
+  }
+}
+
+/**
+ * Memuat kategori kustom yang tersimpan dan mengabaikan data yang tidak valid.
+ * @returns {string[]}
+ */
+function loadCustomCategories() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CATEGORIES_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const seen = new Set(DEFAULT_CATEGORIES.map((category) => category.toLocaleLowerCase('id-ID')));
+    return parsed.filter((category) => {
+      if (typeof category !== 'string') return false;
+      const normalized = category.trim().replace(/\s+/g, ' ');
+      const key = normalized.toLocaleLowerCase('id-ID');
+      if (!normalized || normalized.length > MAX_CATEGORY_LENGTH || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((category) => category.trim().replace(/\s+/g, ' '));
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * Menambahkan kategori kustom ke state dan storage.
+ * @param {string} rawName
+ * @returns {{ valid: boolean, value: string, error: string }}
+ */
+function addCustomCategory(rawName) {
+  const result = validateCategoryName(rawName);
+  if (!result.valid) return result;
+
+  customCategories.push(result.value);
+  saveCustomCategories();
+  renderCategoryOptions(result.value);
+  return result;
+}
+
+/**
  * Memvalidasi bahwa sebuah objek memenuhi skema Transaction.
  * @param {*} item
  * @returns {boolean}
@@ -161,7 +248,7 @@ function isValidTransaction(item) {
   if (typeof item.id !== 'string' || item.id.trim() === '') return false;
   if (typeof item.itemName !== 'string' || item.itemName.trim() === '' || item.itemName.length > 100) return false;
   if (typeof item.amount !== 'number' || !isFinite(item.amount) || item.amount <= 0 || item.amount > MAX_AMOUNT) return false;
-  if (!VALID_CATEGORIES.includes(item.category)) return false;
+  if (!getCategories().includes(item.category)) return false;
   if (typeof item.createdAt !== 'number' || !isFinite(item.createdAt)) return false;
   return true;
 }
@@ -245,6 +332,112 @@ function formatCurrency(amount) {
 }
 
 /**
+ * Memperbarui pilihan kategori pada form dan mempertahankan pilihan saat ini.
+ * @param {string} [selectedCategory]
+ */
+function renderCategoryOptions(selectedCategory) {
+  const select = document.getElementById('category');
+  if (!select) return;
+
+  const activeCategory = selectedCategory || select.value;
+  select.innerHTML = '<option value="">-- Pilih Kategori --</option>';
+
+  getCategories().forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = category;
+    option.selected = category === activeCategory;
+    select.appendChild(option);
+  });
+}
+
+/**
+ * Mengurutkan salinan transaksi untuk tampilan tanpa mengubah urutan penyimpanan.
+ * @param {Transaction[]} txList
+ * @param {string} sortOrder
+ * @returns {Transaction[]}
+ */
+function sortTransactions(txList, sortOrder = currentSort) {
+  const sorted = [...txList];
+
+  const tieBreaker = (a, b) => b.createdAt - a.createdAt;
+  if (sortOrder === 'amount-desc') {
+    return sorted.sort((a, b) => b.amount - a.amount || tieBreaker(a, b));
+  }
+  if (sortOrder === 'amount-asc') {
+    return sorted.sort((a, b) => a.amount - b.amount || tieBreaker(a, b));
+  }
+  if (sortOrder === 'category-asc') {
+    return sorted.sort((a, b) => a.category.localeCompare(b.category, 'id-ID') || tieBreaker(a, b));
+  }
+  return sorted.sort(tieBreaker);
+}
+
+/**
+ * Menghasilkan warna yang konsisten untuk kategori, termasuk kategori kustom.
+ * @param {string} category
+ * @returns {string}
+ */
+function getCategoryColor(category) {
+  const fixedColors = {
+    Food: '#FF6384',
+    Transport: '#36A2EB',
+    Fun: '#FFCE56',
+  };
+  if (fixedColors[category]) return fixedColors[category];
+
+  const hash = [...category].reduce((value, char) => ((value * 31) + char.charCodeAt(0)) >>> 0, 0);
+  return `hsl(${hash % 360} 65% 52%)`;
+}
+
+/**
+ * Menghitung ringkasan transaksi untuk suatu bulan (format YYYY-MM).
+ * @param {Transaction[]} txList
+ * @param {string} month
+ * @returns {{ total: number, count: number, topCategory: string, transactions: Transaction[] }}
+ */
+function getMonthlySummary(txList, month) {
+  const monthTransactions = txList.filter((transaction) => {
+    const date = new Date(transaction.createdAt);
+    const transactionMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    return transactionMonth === month;
+  });
+  const totals = computeCategoryTotals(monthTransactions);
+  const topCategory = Object.entries(totals)
+    .sort(([, amountA], [, amountB]) => amountB - amountA)[0]?.[0] || '—';
+
+  return {
+    total: monthTransactions.reduce((sum, transaction) => sum + transaction.amount, 0),
+    count: monthTransactions.length,
+    topCategory,
+    transactions: monthTransactions,
+  };
+}
+
+/** @returns {string} Bulan lokal saat ini dalam format YYYY-MM. */
+function getCurrentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Merender angka ringkasan untuk bulan yang dipilih.
+ */
+function renderMonthlySummary() {
+  const monthInput = document.getElementById('summary-month');
+  if (!monthInput) return;
+
+  const summary = getMonthlySummary(transactions, monthInput.value);
+  const totalEl = document.getElementById('summary-total');
+  const countEl = document.getElementById('summary-count');
+  const categoryEl = document.getElementById('summary-top-category');
+
+  if (totalEl) totalEl.textContent = formatCurrency(summary.total);
+  if (countEl) countEl.textContent = String(summary.count);
+  if (categoryEl) categoryEl.textContent = summary.topCategory;
+}
+
+/**
  * Merender ulang seluruh Transaction_List ke DOM.
  * Setiap item memuat Item Name, Amount (format currency), Category, dan tombol hapus.
  * @param {Transaction[]} txList
@@ -259,8 +452,6 @@ function renderTransactionList(txList) {
   txList.forEach((tx) => {
     const li = document.createElement('li');
     li.className = 'transaction-item';
-    li.dataset.id = tx.id;
-
     li.innerHTML = `
       <div class="transaction-info">
         <span class="transaction-name">${escapeHtml(tx.itemName)}</span>
@@ -274,6 +465,12 @@ function renderTransactionList(txList) {
         type="button"
       >&times;</button>
     `;
+
+    const categoryBadge = li.querySelector('.transaction-category');
+    if (categoryBadge) {
+      categoryBadge.style.backgroundColor = `color-mix(in srgb, ${getCategoryColor(tx.category)} 15%, transparent)`;
+      categoryBadge.style.color = getCategoryColor(tx.category);
+    }
 
     listEl.appendChild(li);
   });
@@ -397,13 +594,6 @@ function escapeHtml(str) {
 /** @type {import('chart.js').Chart|null} */
 let chartInstance = null;
 
-/** Warna tetap per kategori */
-const CATEGORY_COLORS = {
-  Food: '#FF6384',
-  Transport: '#36A2EB',
-  Fun: '#FFCE56',
-};
-
 /**
  * Menghitung persentase per category dari total keseluruhan.
  * Hanya mengembalikan category dengan total > 0.
@@ -426,7 +616,7 @@ function computeChartData(totals) {
         label: `${category} (${pct.toFixed(1)}%)`,
         value,
         percentage: pct.toFixed(1),
-        color: CATEGORY_COLORS[category],
+        color: getCategoryColor(category),
       };
     });
 }
@@ -502,9 +692,10 @@ function updateChart(categoryTotals) {
  * Memicu re-render seluruh UI (Transaction_List, Total_Balance, Chart).
  */
 function renderAll() {
-  renderTransactionList(transactions);
+  renderTransactionList(sortTransactions(transactions));
   renderTotalBalance(computeTotalBalance());
   updateChart(computeCategoryTotals());
+  renderMonthlySummary();
 }
 
 // =============================================================================
@@ -557,8 +748,8 @@ function handleFormSubmit(event) {
 function handleDeleteClick(event) {
   const target = event.target;
 
-  // Cari elemen yang memiliki data-id (bisa target itu sendiri atau ancestor-nya)
-  const deleteBtn = target.closest('[data-id]');
+  // Hanya tombol hapus yang boleh menghapus transaksi.
+  const deleteBtn = target.closest('.btn-delete[data-id]');
   if (!deleteBtn) return;
 
   const id = deleteBtn.dataset.id;
@@ -581,13 +772,22 @@ function handleDeleteClick(event) {
  */
 function init() {
   // Deteksi ketersediaan localStorage — tampilkan peringatan satu kali jika tidak tersedia
+  renderCategoryOptions();
+
   if (!isStorageAvailable()) {
     showStorageWarning(
       'Persistensi data tidak tersedia pada browser ini. Data hanya berlaku untuk sesi ini.'
     );
   } else {
-    // Muat data yang tersimpan ke state in-memory
+    // Muat kategori sebelum transaksi agar transaksi berkategori kustom tervalidasi.
+    customCategories = loadCustomCategories();
     transactions = loadFromStorage();
+  }
+
+  renderCategoryOptions();
+  const summaryMonthEl = document.getElementById('summary-month');
+  if (summaryMonthEl && !summaryMonthEl.value) {
+    summaryMonthEl.value = getCurrentMonth();
   }
 
   // Inisialisasi Chart.js pada canvas element
@@ -613,8 +813,34 @@ function init() {
   const itemNameEl = document.getElementById('item-name');
   const amountEl = document.getElementById('amount');
   const categoryEl = document.getElementById('category');
+  const customCategoryEl = document.getElementById('custom-category');
+  const addCategoryBtn = document.getElementById('add-category-btn');
+  const sortEl = document.getElementById('sort-transactions');
 
-  [itemNameEl, amountEl, categoryEl].forEach((el) => {
+  if (addCategoryBtn && customCategoryEl) {
+    addCategoryBtn.addEventListener('click', () => {
+      const result = addCustomCategory(customCategoryEl.value);
+      if (!result.valid) {
+        showValidationErrors([result.error]);
+        return;
+      }
+      customCategoryEl.value = '';
+      clearValidationErrors();
+    });
+  }
+
+  if (sortEl) {
+    sortEl.addEventListener('change', () => {
+      currentSort = sortEl.value;
+      renderAll();
+    });
+  }
+
+  if (summaryMonthEl) {
+    summaryMonthEl.addEventListener('change', renderMonthlySummary);
+  }
+
+  [itemNameEl, amountEl, categoryEl, customCategoryEl].forEach((el) => {
     if (el) {
       el.addEventListener('input', clearValidationErrors);
       el.addEventListener('change', clearValidationErrors);
@@ -656,6 +882,14 @@ export {
   computeChartData,
   initChart,
   updateChart,
+  getCategoryColor,
+  // Features
+  getCategories,
+  validateCategoryName,
+  addCustomCategory,
+  sortTransactions,
+  getMonthlySummary,
+  getCurrentMonth,
   // Event Handlers & Bootstrap
   handleFormSubmit,
   handleDeleteClick,
